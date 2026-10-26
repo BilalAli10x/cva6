@@ -304,6 +304,10 @@ xil_debug_filter = $(addprefix $(root-dir), corev_apu/riscv-dbg/src/dm_obi_top.s
 xil_debug_filter += $(addprefix $(root-dir), corev_apu/riscv-dbg/src/dm_pkg.sv)
 xil_debug_filter += $(addprefix $(root-dir), corev_apu/riscv-dbg/src/dmi_vjtag_tap.sv)
 xil_debug_filter += $(addprefix $(root-dir), corev_apu/riscv-dbg/src/dmi_vjtag.sv)						
+# riscv-dbg's DMI test utilities are a simulation-only package (classes).
+xil_debug_filter += $(addprefix $(root-dir), corev_apu/riscv-dbg/src/dmi_test.sv)
+# dmi_bscane_tap.sv defines the same dmi_jtag_tap module as dmi_jtag_tap.sv.
+xil_debug_filter += $(addprefix $(root-dir), corev_apu/riscv-dbg/src/dmi_bscane_tap.sv)
 src := $(filter-out $(xil_debug_filter), $(src))
 
 fpga_src := $(addprefix $(root-dir), $(fpga_src)) src/bootrom/bootrom_$(XLEN).sv
