@@ -192,6 +192,10 @@ src :=  $(if $(spike-tandem),verif/tb/core/uvma_core_cntrl_pkg.sv)              
         vendor/pulp-platform/axi/src/axi_demux.sv                                    \
         vendor/pulp-platform/axi/src/axi_xbar.sv                                     \
         vendor/pulp-platform/common_cells/src/cdc_2phase.sv                          \
+        vendor/pulp-platform/common_cells/src/cdc_2phase_clearable.sv                \
+        vendor/pulp-platform/common_cells/src/cdc_4phase.sv                          \
+        vendor/pulp-platform/common_cells/src/cdc_reset_ctrlr_pkg.sv                 \
+        vendor/pulp-platform/common_cells/src/cdc_reset_ctrlr.sv                     \
         vendor/pulp-platform/common_cells/src/spill_register_flushable.sv            \
         vendor/pulp-platform/common_cells/src/spill_register.sv                      \
         vendor/pulp-platform/common_cells/src/deprecated/fifo_v1.sv                  \
