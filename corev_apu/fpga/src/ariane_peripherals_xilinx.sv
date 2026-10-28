@@ -21,6 +21,7 @@ module ariane_peripherals #(
     parameter bit InclUART     = 1,
     parameter bit InclSPI      = 0,
     parameter bit InclEthernet = 0,
+    parameter bit UseMii       = 0,
     parameter bit InclGPIO     = 0,
     parameter bit InclTimer    = 1
 ) (
@@ -42,6 +43,9 @@ module ariane_peripherals #(
     input  wire        eth_rxck        ,
     input  wire        eth_rxctl       ,
     input  wire [3:0]  eth_rxd         ,
+    input  wire        mii_tx_clk_i    ,
+    input  wire        mii_rxer_i      ,
+    output logic       mii_ref_clk_o   ,
     output wire        eth_txck        ,
     output wire        eth_txctl       ,
     output wire [3:0]  eth_txd         ,
@@ -533,6 +537,52 @@ module ariane_peripherals #(
         .data_i ( eth_rdata               )
     );
 
+    if (UseMii) begin : gen_mii
+    // Arty A7-100T: TI DP83848J 10/100 MII PHY. The MAC runs on the SoC clock
+    // and crosses into the PHY's TX/RX clocks internally.
+    framing_top_mii eth_mii (
+       .msoc_clk(clk_i),
+       .core_lsu_addr(eth_addr[14:0]),
+       .core_lsu_wdata(eth_wrdata),
+       .core_lsu_be(eth_be),
+       .ce_d(eth_en),
+       .we_d(eth_en & eth_we),
+       .framing_sel(eth_en),
+       .framing_rdata(eth_rdata),
+       .rst_int(!rst_ni),
+       .clk_int(clk_i),
+       .phy_rx_clk(eth_rxck),
+       .phy_rxd(eth_rxd),
+       .phy_rx_ctl(eth_rxctl),
+       .phy_rxer(mii_rxer_i),
+       .mii_tx_clk(mii_tx_clk_i),
+       .phy_txd(eth_txd),
+       .phy_tx_ctl(eth_txctl),
+       .phy_reset_n(eth_rst_n),
+       .phy_mdc(eth_mdc),
+       .phy_mdio_i(eth_mdio_i),
+       .phy_mdio_o(eth_mdio_o),
+       .phy_mdio_oe(eth_mdio_oe),
+       .eth_irq(irq_sources[2])
+    );
+    assign eth_txck = 1'b0; // MII: TX_CLK comes from the PHY (mii_tx_clk_i)
+
+    // 25 MHz PHY reference clock (the DP83848J's X1 input), forwarded from
+    // the SoC clock through an ODDR.
+    ODDR #(
+        .DDR_CLK_EDGE("SAME_EDGE"),
+        .INIT(1'b0),
+        .SRTYPE("SYNC")
+    ) i_mii_ref_oddr (
+        .Q(mii_ref_clk_o),
+        .C(clk_i),
+        .CE(1'b1),
+        .D1(1'b1),
+        .D2(1'b0),
+        .R(1'b0),
+        .S(1'b0)
+    );
+    end else begin : gen_rgmii
     framing_top eth_rgmii (
        .msoc_clk(clk_i),
        .core_lsu_addr(eth_addr[14:0]),
@@ -564,6 +614,8 @@ module ariane_peripherals #(
        .phy_mdio_oe(eth_mdio_oe),
        .eth_irq(irq_sources[2])
     );
+    assign mii_ref_clk_o = 1'b0;
+    end
 
        IOBUF #(
           .DRIVE(12), // Specify the output drive strength
@@ -579,6 +631,7 @@ module ariane_peripherals #(
 
     end else begin
         assign irq_sources [2] = 1'b0;
+        assign mii_ref_clk_o = 1'b0;
         assign ethernet.aw_ready = 1'b1;
         assign ethernet.ar_ready = 1'b1;
         assign ethernet.w_ready = 1'b1;

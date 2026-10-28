@@ -4,6 +4,9 @@
 # Pin assignments come from:
 #   - Digilent Arty-A7-100T Master XDC
 #   - ibex-demo-system/data/pins_artya7.xdc (same part, same FT2232 JTAG)
+#
+# Ethernet is a TI DP83848J 10/100 MII PHY; pins follow the Digilent
+# Arty-A7-100T master XDC / LiteX digilent_arty platform.
 
 ## Single-ended 100 MHz clock (E3), CMOS33
 set_property -dict { PACKAGE_PIN E3    IOSTANDARD LVCMOS33 } [get_ports { sys_clk_i }];
@@ -35,6 +38,41 @@ set_property -dict { PACKAGE_PIN A10   IOSTANDARD LVCMOS33 } [get_ports { sw[3] 
 ## USB-UART (FT2232H channel B): D10 uart_rxd_out (FPGA tx), A9 uart_txd_in (FPGA rx)
 set_property -dict { PACKAGE_PIN D10   IOSTANDARD LVCMOS33 } [get_ports { tx }];
 set_property -dict { PACKAGE_PIN A9    IOSTANDARD LVCMOS33 } [get_ports { rx }];
+
+## Ethernet MII (TI DP83848J)
+set_property -dict { PACKAGE_PIN G18   IOSTANDARD LVCMOS33 } [get_ports { eth_ref_clk }];
+set_property -dict { PACKAGE_PIN H16   IOSTANDARD LVCMOS33 } [get_ports { eth_txck }];
+set_property -dict { PACKAGE_PIN F15   IOSTANDARD LVCMOS33 } [get_ports { eth_rxck }];
+set_property -dict { PACKAGE_PIN C16   IOSTANDARD LVCMOS33 } [get_ports { eth_rst_n }];
+set_property -dict { PACKAGE_PIN K13   IOSTANDARD LVCMOS33 } [get_ports { eth_mdio }];
+set_property -dict { PACKAGE_PIN F16   IOSTANDARD LVCMOS33 } [get_ports { eth_mdc }];
+set_property -dict { PACKAGE_PIN G16   IOSTANDARD LVCMOS33 } [get_ports { eth_rxctl }];
+set_property -dict { PACKAGE_PIN C17   IOSTANDARD LVCMOS33 } [get_ports { eth_rxer }];
+set_property -dict { PACKAGE_PIN D18   IOSTANDARD LVCMOS33 } [get_ports { eth_rxd[0] }];
+set_property -dict { PACKAGE_PIN E17   IOSTANDARD LVCMOS33 } [get_ports { eth_rxd[1] }];
+set_property -dict { PACKAGE_PIN E18   IOSTANDARD LVCMOS33 } [get_ports { eth_rxd[2] }];
+set_property -dict { PACKAGE_PIN G17   IOSTANDARD LVCMOS33 } [get_ports { eth_rxd[3] }];
+set_property -dict { PACKAGE_PIN H15   IOSTANDARD LVCMOS33 } [get_ports { eth_txctl }];
+set_property -dict { PACKAGE_PIN H14   IOSTANDARD LVCMOS33 } [get_ports { eth_txd[0] }];
+set_property -dict { PACKAGE_PIN J14   IOSTANDARD LVCMOS33 } [get_ports { eth_txd[1] }];
+set_property -dict { PACKAGE_PIN J13   IOSTANDARD LVCMOS33 } [get_ports { eth_txd[2] }];
+set_property -dict { PACKAGE_PIN H17   IOSTANDARD LVCMOS33 } [get_ports { eth_txd[3] }];
+
+set_property PULLUP true [get_ports { eth_mdio }];
+
+# MII TX/RX clocks are supplied by the PHY (25 MHz).
+create_clock -add -name eth_txck -period 40.000 [get_ports { eth_txck }];
+create_clock -add -name eth_rxck -period 40.000 [get_ports { eth_rxck }];
+# Both cross into the SoC clock only through the MAC's async FIFOs.
+set_clock_groups -asynchronous -group [get_clocks eth_rxck]
+set_clock_groups -asynchronous -group [get_clocks eth_txck]
+
+# DP83848J @100 Mb/s: RXD/RX_DV/RX_ER valid 10..30 ns after RX_CLK rises;
+# TXD/TX_EN need 10 ns setup / 0 ns hold to TX_CLK.
+set_input_delay  -clock eth_rxck -max 30.000 [get_ports { eth_rxd[*] eth_rxctl eth_rxer }]
+set_input_delay  -clock eth_rxck -min 10.000 [get_ports { eth_rxd[*] eth_rxctl eth_rxer }]
+set_output_delay -clock eth_txck -max 10.000 [get_ports { eth_txd[*] eth_txctl }]
+set_output_delay -clock eth_txck -min  0.000 [get_ports { eth_txd[*] eth_txctl }]
 
 ## DDR3: all DDR3 pin locations come from the MIG project (mig_arty_a7_100t.prj)
 

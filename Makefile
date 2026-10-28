@@ -322,6 +322,12 @@ else
 src := $(filter-out $(addprefix $(root-dir), corev_apu/riscv-dbg/src/dmi_bscane_tap.sv), $(src))
 endif
 
+# The Arty's 10/100 MII PHY uses framing_top_mii (same register map as the
+# lowRISC framing_top) and verilog-ethernet's MII MAC.
+ifeq ($(BOARD),arty_a7_100t)
+fpga_src += $(wildcard corev_apu/fpga/src/arty-ethernet/*.sv)
+endif
+
 fpga_src := $(addprefix $(root-dir), $(fpga_src)) src/bootrom/bootrom_$(XLEN).sv
 
 # look for testbenches

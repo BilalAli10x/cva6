@@ -161,7 +161,18 @@ module ariane_xilinx (
   output wire [ 1:0]   ddr3_dm     ,
   output wire [ 0:0]   ddr3_odt    ,
 
-  // Arty A7-100T: no Ethernet PHY and no fan header -> ports omitted.
+  // MII Ethernet (TI DP83848J)
+  output logic         eth_ref_clk ,
+  input  logic         eth_txck    ,
+  input  logic         eth_rxck    ,
+  input  logic         eth_rxctl   ,
+  input  logic [ 3:0]  eth_rxd     ,
+  input  logic         eth_rxer    ,
+  output logic         eth_txctl   ,
+  output logic [ 3:0]  eth_txd     ,
+  output logic         eth_rst_n   ,
+  inout  wire          eth_mdio    ,
+  output logic         eth_mdc     ,
   output logic [ 3:0]  led         ,
   input  logic [ 3:0]  sw          ,
 `elsif NEXYS_VIDEO
@@ -328,16 +339,6 @@ assign cpu_resetn = ~cpu_reset;
 logic trst_n;
 assign trst_n = 1'b1;
 
-// No Ethernet PHY: dummy nets, pruned by synthesis.
-wire               eth_rst_n;
-wire               eth_rxck;
-wire               eth_rxctl;
-wire [3:0]         eth_rxd;
-wire               eth_txck;
-wire               eth_txctl;
-wire [3:0]         eth_txd;
-wire               eth_mdio;
-logic              eth_mdc;
 `elsif VC707
 assign cpu_resetn = ~cpu_reset;
 assign trst_n = ~trst;
@@ -1176,7 +1177,8 @@ ariane_peripherals #(
     .InclEthernet ( 1'b0         )
     `elsif ARTY_A7_100T
     .InclSPI      ( 1'b1         ),
-    .InclEthernet ( 1'b0         )
+    .InclEthernet ( 1'b1         ),
+    .UseMii       ( 1'b1         )
     `endif
 ) i_ariane_peripherals (
     .clk_i        ( clk                          ),
@@ -1192,7 +1194,11 @@ ariane_peripherals #(
     .irq_o        ( irq                          ),
     .rx_i         ( rx                           ),
     .tx_o         ( tx                           ),
-    .eth_txck,
+`ifdef ARTY_A7_100T
+    .eth_txck       (                           ),
+`else
+    .eth_txck       ( eth_txck                  ),
+`endif
     .eth_rxck,
     .eth_rxctl,
     .eth_rxd,
@@ -1201,6 +1207,15 @@ ariane_peripherals #(
     .eth_txd,
     .eth_mdio,
     .eth_mdc,
+`ifdef ARTY_A7_100T
+    .mii_tx_clk_i   ( eth_txck                  ),
+    .mii_rxer_i     ( eth_rxer                  ),
+    .mii_ref_clk_o  ( eth_ref_clk               ),
+`else
+    .mii_tx_clk_i   ( 1'b0                      ),
+    .mii_rxer_i     ( 1'b0                      ),
+    .mii_ref_clk_o  (                           ),
+`endif
     .phy_tx_clk_i   ( phy_tx_clk                  ),
     .sd_clk_i       ( sd_clk_sys                  ),
     .spi_clk_o      ( spi_clk_o                   ),
