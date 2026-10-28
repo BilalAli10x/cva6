@@ -141,6 +141,29 @@ module ariane_xilinx (
   input  wire [7:0]    pci_exp_rxp     ,
   input  wire [7:0]    pci_exp_rxn     ,
   input  logic         trst_n          ,
+`elsif ARTY_A7_100T
+  input  logic         sys_clk_i   ,
+  input  logic         cpu_resetn  ,
+
+  inout  wire [15:0]   ddr3_dq     ,
+  inout  wire [ 1:0]   ddr3_dqs_n  ,
+  inout  wire [ 1:0]   ddr3_dqs_p  ,
+  output wire [13:0]   ddr3_addr   ,
+  output wire [ 2:0]   ddr3_ba     ,
+  output wire          ddr3_ras_n  ,
+  output wire          ddr3_cas_n  ,
+  output wire          ddr3_we_n   ,
+  output wire [ 0:0]   ddr3_cs_n   ,
+  output wire          ddr3_reset_n,
+  output wire [ 0:0]   ddr3_ck_p   ,
+  output wire [ 0:0]   ddr3_ck_n   ,
+  output wire [ 0:0]   ddr3_cke    ,
+  output wire [ 1:0]   ddr3_dm     ,
+  output wire [ 0:0]   ddr3_odt    ,
+
+  // Arty A7-100T: no Ethernet PHY and no fan header -> ports omitted.
+  output logic [ 3:0]  led         ,
+  input  logic [ 3:0]  sw          ,
 `elsif NEXYS_VIDEO
   input  logic         sys_clk_i   ,
   input  logic         cpu_resetn  ,
@@ -280,6 +303,13 @@ logic sd_clk_sys;
 
 logic ddr_sync_reset;
 logic ddr_clock_out;
+// ui_clk-domain reset for the DDR AXI path (Arty: MIG sync reset).
+logic ddr_m_axi_aresetn;
+`ifdef ARTY_A7_100T
+assign ddr_m_axi_aresetn = ~ddr_sync_reset;
+`else
+assign ddr_m_axi_aresetn = ndmreset_n;
+`endif
 
 logic rst_n, rst;
 logic rtc;
@@ -293,6 +323,21 @@ logic cpu_reset;
 assign cpu_reset  = ~cpu_resetn;
 `elsif KC705
 assign cpu_resetn = ~cpu_reset;
+`elsif ARTY_A7_100T
+// No external JTAG pins: internal BSCANE2 TAP, tie trst_n high.
+logic trst_n;
+assign trst_n = 1'b1;
+
+// No Ethernet PHY: dummy nets, pruned by synthesis.
+wire               eth_rst_n;
+wire               eth_rxck;
+wire               eth_rxctl;
+wire [3:0]         eth_rxd;
+wire               eth_txck;
+wire               eth_txctl;
+wire [3:0]         eth_txd;
+wire               eth_mdio;
+logic              eth_mdc;
 `elsif VC707
 assign cpu_resetn = ~cpu_reset;
 assign trst_n = ~trst;
@@ -302,6 +347,9 @@ assign cpu_reset  = ~cpu_resetn;
 `endif
 
 logic pll_locked;
+`ifdef ARTY_A7_100T
+logic sys_clk_bufg;
+`endif
 
 // ROM
 logic                    rom_req;
@@ -388,6 +436,10 @@ axi_xbar_intf #(
 // Debug Module
 // ---------------
 logic dmi_rst_n; // DTM reset: synchronous clear for the DM response queue
+
+// The JTAG TAP is selected at build time: boards without external JTAG user
+// pins (e.g. Arty A7-100T) compile dmi_bscane_tap.sv instead of
+// dmi_jtag_tap.sv; both are pin-compatible and instantiated as-is here.
 dmi_jtag i_dmi_jtag (
     .clk_i                ( clk                  ),
     .rst_ni               ( rst_n                ),
@@ -804,6 +856,18 @@ ariane #(
 `AXI_ASSIGN_FROM_REQ(slave[0], axi_ariane_req)
 `AXI_ASSIGN_TO_RESP(axi_ariane_resp, slave[0])
 
+`ifdef ARTY_A7_100T
+localparam bit TraceEn = (CVA6Cfg.XLEN != 64);
+`else
+localparam bit TraceEn = 1'b1;
+`endif
+
+localparam DATA_LEN = 8;
+logic                           valid_slice;
+logic [DATA_LEN-1:0]            slice;
+logic                           usrFull;
+
+if (TraceEn) begin : gen_trace
   cva6_rvfi #(
       .CVA6Cfg   (CVA6Cfg),
       .rvfi_instr_t(rvfi_instr_t),
@@ -916,9 +980,6 @@ ariane #(
         .pop_i     (encap_fifo_pop)
     );
 
-    localparam DATA_LEN = 8;
-    logic                           valid_slice;
-    logic [DATA_LEN-1:0]            slice;
     logic [$clog2(DATA_LEN)-4:0]    valid_bytes;
 
     slicer_DPTI #(
@@ -934,6 +995,7 @@ ariane #(
         .slice_o           (slice),
         .done_o            (encap_fifo_pop)
     );
+end
 // ---------------
 // CLINT
 // ---------------
@@ -1011,7 +1073,6 @@ end
 // ---------------
 
 logic FifoEn ;
-logic usrFull ;
 logic usrEmpty ;
 logic [7:0] w_data;
 logic [7:0] r_data;
@@ -1027,6 +1088,7 @@ logic prog_wrn_debug;
 logic prog_oen_debug;
 logic prog_siwun_debug;
 
+if (TraceEn) begin : gen_dpti
 assign prog_rxen_debug = prog_rxen;
 assign prog_txen_debug = prog_txen;
 assign prog_spien_debug = prog_spien;
@@ -1067,10 +1129,23 @@ assign FifoEn = !usrFull && !usrEmpty;
           .prog_siwun(prog_siwun),
           .prog_d(prog_d)
 );
+end else begin : gen_no_trace
+// Arty A7-100T: no trace connector, keep the DPTI pins idle.
+assign prog_rdn   = 1'b0;
+assign prog_wrn   = 1'b0;
+assign prog_oen   = 1'b0;
+assign prog_siwun = 1'b0;
+assign prog_d     = 'z;
+end
 // ---------------
 // Peripherals
 // ---------------
 `ifdef KC705
+  logic [7:0] unused_led;
+  logic [3:0] unused_switches = 4'b0000;
+`endif
+
+`ifdef ARTY_A7_100T
   logic [7:0] unused_led;
   logic [3:0] unused_switches = 4'b0000;
 `endif
@@ -1097,6 +1172,9 @@ ariane_peripherals #(
     .InclSPI      ( 1'b0         ),
     .InclEthernet ( 1'b0         )
     `elsif NEXYS_VIDEO
+    .InclSPI      ( 1'b1         ),
+    .InclEthernet ( 1'b0         )
+    `elsif ARTY_A7_100T
     .InclSPI      ( 1'b1         ),
     .InclEthernet ( 1'b0         )
     `endif
@@ -1130,6 +1208,9 @@ ariane_peripherals #(
     .spi_miso       ( spi_miso                    ),
     .spi_ss         ( spi_ss                      ),
     `ifdef KC705
+      .leds_o         ( {led[3:0], unused_led[7:4]}),
+      .dip_switches_i ( {sw, unused_switches}     )
+    `elsif ARTY_A7_100T
       .leds_o         ( {led[3:0], unused_led[7:4]}),
       .dip_switches_i ( {sw, unused_switches}     )
     `else
@@ -1308,7 +1389,7 @@ xlnx_axi_clock_converter i_xlnx_axi_clock_converter_ddr (
   .s_axi_rready   ( dram.r_ready     ),
   // to size converter
   .m_axi_aclk     ( ddr_clock_out    ),
-  .m_axi_aresetn  ( ndmreset_n       ),
+  .m_axi_aresetn  ( ddr_m_axi_aresetn ),
   .m_axi_awid     ( s_axi_awid       ),
   .m_axi_awaddr   ( s_axi_awaddr     ),
   .m_axi_awlen    ( s_axi_awlen      ),
@@ -1360,6 +1441,24 @@ xlnx_clk_gen i_xlnx_clk_gen (
   .reset    ( cpu_reset       ),
   .locked   ( pll_locked      ),
   .clk_in1  ( ddr_clock_out   )  // 100MHz input clock
+);
+
+`elsif ARTY_A7_100T
+// 100 MHz board clock via BUFG; clocking wizard generates 25 MHz core and 200 MHz MIG ref.
+BUFG bufg_sys_clk (
+  .I ( sys_clk_i     ),
+  .O ( sys_clk_bufg  )
+);
+
+xlnx_clk_gen i_xlnx_clk_gen (
+  .clk_out1 ( clk             ), // 25 MHz core clock
+  .clk_out2 ( phy_tx_clk      ), // 125 MHz (unused: the Arty MII PHY drives its own clocks)
+  .clk_out3 ( eth_clk         ), // 125 MHz quadrature (unused on Arty)
+  .clk_out4 ( sd_clk_sys      ), // 50 MHz clock (SPI/SD path)
+  .clk_out5 ( clk_200MHz_ref  ), // 200 MHz (MIG clk_ref_i)
+  .reset    ( 1'b0            ),
+  .locked   ( pll_locked      ),
+  .clk_in1  ( sys_clk_bufg    )  // 100 MHz board clock
 );
 
 `else
@@ -1530,6 +1629,78 @@ xlnx_mig_7_ddr3 i_ddr (
     .init_calib_complete (            ), // keep open
     .device_temp         (            ), // keep open
     .sys_rst             ( cpu_resetn )
+);
+`elsif ARTY_A7_100T
+
+xlnx_mig_7_ddr3 i_ddr (
+    .sys_clk_i       ( sys_clk_bufg   ),
+    .clk_ref_i       ( clk_200MHz_ref ),
+    .ddr3_dq,
+    .ddr3_dqs_n,
+    .ddr3_dqs_p,
+    .ddr3_addr,
+    .ddr3_ba,
+    .ddr3_ras_n,
+    .ddr3_cas_n,
+    .ddr3_we_n,
+    .ddr3_cs_n,
+    .ddr3_reset_n,
+    .ddr3_ck_p,
+    .ddr3_ck_n,
+    .ddr3_cke,
+    .ddr3_dm,
+    .ddr3_odt,
+    .mmcm_locked     (                ), // keep open
+    .app_sr_req      ( '0             ),
+    .app_ref_req     ( '0             ),
+    .app_zq_req      ( '0             ),
+    .app_sr_active   (                ), // keep open
+    .app_ref_ack     (                ), // keep open
+    .app_zq_ack      (                ), // keep open
+    .ui_clk          ( ddr_clock_out  ),
+    .ui_clk_sync_rst ( ddr_sync_reset ),
+    .aresetn         ( ndmreset_n     ), // MIG input reset; do not feed it its own sync reset
+    .s_axi_awid,
+    .s_axi_awaddr    ( s_axi_awaddr[28:0] ),
+    .s_axi_awlen,
+    .s_axi_awsize,
+    .s_axi_awburst,
+    .s_axi_awlock,
+    .s_axi_awcache,
+    .s_axi_awprot,
+    .s_axi_awqos,
+    .s_axi_awvalid,
+    .s_axi_awready,
+    .s_axi_wdata,
+    .s_axi_wstrb,
+    .s_axi_wlast,
+    .s_axi_wvalid,
+    .s_axi_wready,
+    .s_axi_bready,
+    .s_axi_bid,
+    .s_axi_bresp,
+    .s_axi_bvalid,
+    .s_axi_arid,
+    .s_axi_araddr     ( s_axi_araddr[28:0] ),
+    .s_axi_arlen,
+    .s_axi_arsize,
+    .s_axi_arburst,
+    .s_axi_arlock,
+    .s_axi_arcache,
+    .s_axi_arprot,
+    .s_axi_arqos,
+    .s_axi_arvalid,
+    .s_axi_arready,
+    .s_axi_rready,
+    .s_axi_rid,
+    .s_axi_rdata,
+    .s_axi_rresp,
+    .s_axi_rlast,
+    .s_axi_rvalid,
+    .init_calib_complete (            ), // keep open
+    .device_temp         (            ), // keep open
+    // Hold the MIG in reset until the ref clock locks (BTN0 is active high).
+    .sys_rst             ( pll_locked & ~cpu_resetn )
 );
 `elsif NEXYS_VIDEO
 

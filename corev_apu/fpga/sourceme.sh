@@ -36,3 +36,11 @@ if [ "$BOARD" = "nexys_video" ]; then
   export XILINX_BOARD="digilentinc.com:nexys_video:part0:1.1"
   export CLK_PERIOD_NS="40"
 fi
+
+if [ "$BOARD" = "arty_a7_100t" ]; then
+  echo -n "Configuring for "
+  echo "Arty A7-100T Artix-7"
+  export XILINX_PART="xc7a100tcsg324-1"
+  export XILINX_BOARD="digilentinc.com:arty-a7-100:part0:1.1"
+  export CLK_PERIOD_NS="40"
+fi
